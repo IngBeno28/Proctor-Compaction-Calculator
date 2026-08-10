@@ -1081,7 +1081,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-```
 
 **The key unit conversion is now exactly:**
 
