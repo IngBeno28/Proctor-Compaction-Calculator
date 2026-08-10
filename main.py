@@ -19,66 +19,58 @@ st.set_page_config(
 # CUSTOM CSS
 # =========================================================
 
-st.markdown("""
-<style>
+st.markdown(
+    """
+    <style>
+    .main {
+        padding-top: 1rem;
+    }
 
-.main {
-    padding-top: 1rem;
-}
+    .title {
+        font-size: 2.4rem;
+        font-weight: 700;
+        margin-bottom: 0.2rem;
+    }
 
-.title {
-    font-size: 2.4rem;
-    font-weight: 700;
-    margin-bottom: 0.2rem;
-}
+    .subtitle {
+        color: #666;
+        font-size: 1.05rem;
+        margin-bottom: 1.5rem;
+    }
 
-.subtitle {
-    color: #666;
-    font-size: 1.05rem;
-    margin-bottom: 1.5rem;
-}
+    .result-card {
+        padding: 1.2rem;
+        border-radius: 12px;
+        border: 1px solid #ddd;
+        text-align: center;
+        background-color: #fafafa;
+    }
 
-.result-card {
-    padding: 1.2rem;
-    border-radius: 12px;
-    border: 1px solid #ddd;
-    text-align: center;
-    background-color: #fafafa;
-}
+    .result-value {
+        font-size: 2rem;
+        font-weight: 700;
+    }
 
-.result-value {
-    font-size: 2rem;
-    font-weight: 700;
-}
+    .result-label {
+        font-size: 0.9rem;
+        color: #666;
+    }
 
-.result-label {
-    font-size: 0.9rem;
-    color: #666;
-}
+    .calculated-value {
+        font-weight: 600;
+    }
 
-.success-card {
-    padding: 1rem;
-    border-radius: 10px;
-    border: 1px solid #2e7d32;
-    text-align: center;
-}
-
-.warning-card {
-    padding: 1rem;
-    border-radius: 10px;
-    border: 1px solid #ef6c00;
-    text-align: center;
-}
-
-.footer {
-    text-align: center;
-    color: #888;
-    font-size: 0.85rem;
-    margin-top: 2rem;
-}
-
-</style>
-""", unsafe_allow_html=True)
+    .footer {
+        text-align: center;
+        color: #888;
+        font-size: 0.85rem;
+        margin-top: 2rem;
+        padding-bottom: 1rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 
 # =========================================================
@@ -144,8 +136,8 @@ st.sidebar.info(
 # HELPER FUNCTIONS
 # =========================================================
 
-def convert_density_from_kg_m3(value, unit):
-    """Convert kg/m³ to selected density unit."""
+def kg_m3_to_selected_density(value, unit):
+    """Convert density from kg/m³ to selected unit."""
 
     if unit == "kg/m³":
         return value
@@ -159,8 +151,8 @@ def convert_density_from_kg_m3(value, unit):
     return value
 
 
-def convert_density_to_kg_m3(value, unit):
-    """Convert selected density unit to kg/m³."""
+def selected_density_to_kg_m3(value, unit):
+    """Convert density from selected unit to kg/m³."""
 
     if unit == "kg/m³":
         return value
@@ -174,26 +166,60 @@ def convert_density_to_kg_m3(value, unit):
     return value
 
 
-def calculate_dry_density(wet_density, moisture):
-    """Calculate dry density from wet density."""
-
-    return wet_density / (1 + moisture / 100)
-
-
-def calculate_zav(gs, moisture):
+def calculate_mdd_omc(moisture, dry_density):
     """
-    Calculate Zero Air Voids dry density.
+    Determine MDD and OMC using a quadratic fit.
 
-    ρ_zav = Gs * ρw / (1 + w)
-
-    Using water density = 1000 kg/m³.
+    Returns:
+        mdd_kg_m3
+        omc_percent
+        coefficients
     """
 
-    return (gs * 1000) / (1 + moisture / 100)
+    coefficients = np.polyfit(
+        moisture,
+        dry_density,
+        2
+    )
+
+    a, b, c = coefficients
+
+    # Measured maximum
+    max_index = np.argmax(dry_density)
+
+    measured_mdd = dry_density[max_index]
+    measured_omc = moisture[max_index]
+
+    mdd = measured_mdd
+    omc = measured_omc
+
+    # A valid compaction curve should open downward.
+    if a < 0:
+
+        estimated_omc = -b / (2 * a)
+
+        estimated_mdd = (
+            a * estimated_omc**2
+            + b * estimated_omc
+            + c
+        )
+
+        # Only accept the fitted vertex if it falls
+        # within the measured moisture range.
+        if (
+            moisture.min()
+            <= estimated_omc
+            <= moisture.max()
+        ):
+
+            omc = estimated_omc
+            mdd = estimated_mdd
+
+    return mdd, omc, coefficients
 
 
 # =========================================================
-# MAIN TABS
+# TABS
 # =========================================================
 
 tab1, tab2, tab3 = st.tabs(
@@ -206,7 +232,7 @@ tab1, tab2, tab3 = st.tabs(
 
 
 # =========================================================
-# TAB 1 — LABORATORY PROCTOR
+# TAB 1 — LABORATORY PROCTOR ANALYSIS
 # =========================================================
 
 with tab1:
@@ -214,25 +240,13 @@ with tab1:
     st.header("Laboratory Proctor Analysis")
 
     st.write(
-        "Enter the laboratory measurements for each compacted specimen."
+        "Enter the measured laboratory values below. "
+        "Wet soil mass, wet density and dry density are "
+        "calculated automatically."
     )
 
     # -----------------------------------------------------
-    # INPUT METHOD
-    # -----------------------------------------------------
-
-    input_mode = st.radio(
-        "How would you like to enter density data?",
-        [
-            "Wet Soil Mass + Mold Volume",
-            "Wet/Bulk Density",
-            "Dry Density"
-        ],
-        horizontal=True
-    )
-
-    # -----------------------------------------------------
-    # GENERAL TEST PARAMETERS
+    # GENERAL TEST INFORMATION
     # -----------------------------------------------------
 
     col1, col2, col3 = st.columns(3)
@@ -267,209 +281,166 @@ with tab1:
             step=1.0
         )
 
+    # -----------------------------------------------------
+    # MOULD INFORMATION
+    # -----------------------------------------------------
+
+    st.subheader("Mould Information")
+
+    mould_col1, mould_col2 = st.columns(2)
+
+    with mould_col1:
+
+        mould_factor = st.number_input(
+            "Mould Factor (cm⁻³)",
+            min_value=0.000001,
+            value=0.001061,
+            format="%.9f",
+            help=(
+                "Mould factor is the inverse of mould volume. "
+                "When mass is entered in grams, the resulting "
+                "wet density is obtained in g/cm³."
+            )
+        )
+
+    with mould_col2:
+
+        mould_mass = st.number_input(
+            "Mould Mass (g)",
+            min_value=0.0,
+            value=700.0,
+            step=0.1
+        )
+
+    st.caption(
+        "Mould factor = 1 / mould volume. "
+        "For consistency, mould factor is entered in cm⁻³ "
+        "when specimen masses are entered in grams."
+    )
+
     st.markdown("---")
 
     # -----------------------------------------------------
-    # MOLD PARAMETERS
+    # SPECIMEN INPUT
     # -----------------------------------------------------
 
-    if input_mode == "Wet Soil Mass + Mold Volume":
+    st.subheader("Proctor Test Specimens")
 
-        st.subheader("Mold Information")
+    st.write(
+        "Enter the wet soil + mould mass and moisture "
+        "content for each specimen."
+    )
 
-        mold_col1, mold_col2 = st.columns(2)
-
-        with mold_col1:
-
-            mold_volume_cm3 = st.number_input(
-                "Mold Volume (cm³)",
-                min_value=100.0,
-                value=944.0,
-                step=1.0
-            )
-
-        with mold_col2:
-
-            mold_mass_g = st.number_input(
-                "Mold Mass (g)",
-                min_value=0.0,
-                value=0.0,
-                step=1.0
-            )
-
-    # -----------------------------------------------------
-    # TEST POINT INPUT
-    # -----------------------------------------------------
-
-    st.subheader("Test Specimens")
-
-    rows = []
+    specimen_rows = []
 
     for i in range(int(num_points)):
 
-        st.markdown(f"**Specimen {i + 1}**")
+        st.markdown(
+            f"### Specimen {i + 1}"
+        )
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
 
         with col1:
 
-            moisture = st.number_input(
-                f"Moisture Content (%) — Point {i + 1}",
-                min_value=0.0,
-                max_value=100.0,
-                value=float(4 + i * 2),
+            wet_soil_mould_mass = st.number_input(
+                "Wet Soil + Mould Mass (g)",
+                min_value=0.1,
+                value=1650.0 + (i * 25),
                 step=0.1,
-                key=f"moisture_{i}"
+                key=f"wet_soil_mould_mass_{i}"
             )
 
         with col2:
 
-            if input_mode == "Wet Soil Mass + Mold Volume":
+            moisture_content = st.number_input(
+                "Moisture Content (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(4 + i * 2),
+                step=0.1,
+                key=f"moisture_content_{i}"
+            )
 
-                wet_mass = st.number_input(
-                    f"Wet Soil Mass (g) — Point {i + 1}",
-                    min_value=0.1,
-                    value=1700.0,
-                    step=1.0,
-                    key=f"wet_mass_{i}"
-                )
+        # -------------------------------------------------
+        # AUTOMATIC CALCULATIONS
+        # -------------------------------------------------
 
-                density_input = wet_mass
+        wet_soil_mass = (
+            wet_soil_mould_mass
+            - mould_mass
+        )
 
-            elif input_mode == "Wet/Bulk Density":
+        # Wet density in g/cm³
+        wet_density_g_cm3 = (
+            wet_soil_mass
+            * mould_factor
+        )
 
-                density_input = st.number_input(
-                    f"Wet/Bulk Density ({density_unit}) — Point {i + 1}",
-                    min_value=0.001,
-                    value=1800.0,
-                    step=1.0,
-                    key=f"wet_density_{i}"
-                )
+        # Convert to kg/m³
+        wet_density_kg_m3 = (
+            wet_density_g_cm3
+            * 1000
+        )
 
-            else:
+        # Dry density
+        dry_density_kg_m3 = (
+            wet_density_kg_m3
+            /
+            (
+                1
+                +
+                moisture_content / 100
+            )
+        )
 
-                density_input = st.number_input(
-                    f"Dry Density ({density_unit}) — Point {i + 1}",
-                    min_value=0.001,
-                    value=1600.0,
-                    step=1.0,
-                    key=f"dry_density_{i}"
-                )
-
-        with col3:
-
-            if input_mode == "Wet Soil Mass + Mold Volume":
-
-                st.write("")
-
-                st.caption(
-                    "Bulk density will be calculated automatically."
-                )
-
-            elif input_mode == "Wet/Bulk Density":
-
-                st.write("")
-
-                st.caption(
-                    "Dry density will be calculated automatically."
-                )
-
-            else:
-
-                st.write("")
-
-                st.caption(
-                    "Density entered directly."
-                )
-
-        rows.append(
+        specimen_rows.append(
             {
                 "Point": i + 1,
-                "Moisture Content (%)": moisture,
-                "Density Input": density_input
+                "Moisture Content (%)":
+                    moisture_content,
+                "Wet Soil + Mould Mass (g)":
+                    wet_soil_mould_mass,
+                "Wet Soil Mass (g)":
+                    wet_soil_mass,
+                "Wet Density (kg/m³)":
+                    wet_density_kg_m3,
+                "Dry Density (kg/m³)":
+                    dry_density_kg_m3
             }
         )
 
     # -----------------------------------------------------
-    # BUILD DATAFRAME
+    # CREATE DATAFRAME
     # -----------------------------------------------------
 
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(specimen_rows)
 
     # -----------------------------------------------------
-    # CALCULATIONS
+    # VALIDATION
     # -----------------------------------------------------
 
-    if input_mode == "Wet Soil Mass + Mold Volume":
+    if np.any(
+        df["Wet Soil Mass (g)"] <= 0
+    ):
 
-        # Convert cm³ to m³
-        mold_volume_m3 = mold_volume_cm3 * 1e-6
-
-        # Wet soil mass in kg
-        wet_soil_mass_kg = (
-            df["Density Input"] - mold_mass_g
-        ) / 1000
-
-        # Bulk density kg/m³
-        df["Wet Density (kg/m³)"] = (
-            wet_soil_mass_kg / mold_volume_m3
+        st.error(
+            "Wet Soil Mass must be greater than zero. "
+            "Check the mould mass and wet soil + mould mass."
         )
 
-        df["Dry Density (kg/m³)"] = (
-            df["Wet Density (kg/m³)"] /
-            (
-                1 +
-                df["Moisture Content (%)"] / 100
-            )
+        st.stop()
+
+    if len(
+        set(df["Moisture Content (%)"])
+    ) != len(df):
+
+        st.error(
+            "Each specimen must have a different "
+            "moisture content."
         )
 
-    elif input_mode == "Wet/Bulk Density":
-
-        df["Wet Density (kg/m³)"] = (
-            df["Density Input"].apply(
-                lambda x:
-                convert_density_to_kg_m3(
-                    x,
-                    density_unit
-                )
-            )
-        )
-
-        df["Dry Density (kg/m³)"] = (
-            df["Wet Density (kg/m³)"] /
-            (
-                1 +
-                df["Moisture Content (%)"] / 100
-            )
-        )
-
-    else:
-
-        df["Dry Density (kg/m³)"] = (
-            df["Density Input"].apply(
-                lambda x:
-                convert_density_to_kg_m3(
-                    x,
-                    density_unit
-                )
-            )
-        )
-
-    # -----------------------------------------------------
-    # ZAV CALCULATION
-    # -----------------------------------------------------
-
-    df["ZAV Density (kg/m³)"] = (
-        (
-            specific_gravity *
-            water_density
-        )
-        /
-        (
-            1 +
-            df["Moisture Content (%)"] / 100
-        )
-    )
+        st.stop()
 
     # -----------------------------------------------------
     # SORT DATA
@@ -480,7 +451,7 @@ with tab1:
     ).reset_index(drop=True)
 
     # -----------------------------------------------------
-    # DISPLAY RESULTS
+    # DISPLAY CALCULATED RESULTS
     # -----------------------------------------------------
 
     st.subheader("Calculated Specimen Results")
@@ -491,13 +462,27 @@ with tab1:
                 df["Point"].astype(int),
 
             "Moisture Content (%)":
-                df["Moisture Content (%)"].round(2),
+                df[
+                    "Moisture Content (%)"
+                ].round(2),
 
-            "Dry Density":
-                df["Dry Density (kg/m³)"].apply(
+            "Wet Soil + Mould Mass (g)":
+                df[
+                    "Wet Soil + Mould Mass (g)"
+                ].round(2),
+
+            "Wet Soil Mass (g)":
+                df[
+                    "Wet Soil Mass (g)"
+                ].round(2),
+
+            "Wet Density":
+                df[
+                    "Wet Density (kg/m³)"
+                ].apply(
                     lambda x:
                     round(
-                        convert_density_from_kg_m3(
+                        kg_m3_to_selected_density(
                             x,
                             density_unit
                         ),
@@ -505,11 +490,13 @@ with tab1:
                     )
                 ),
 
-            "ZAV Density":
-                df["ZAV Density (kg/m³)"].apply(
+            "Dry Density":
+                df[
+                    "Dry Density (kg/m³)"
+                ].apply(
                     lambda x:
                     round(
-                        convert_density_from_kg_m3(
+                        kg_m3_to_selected_density(
                             x,
                             density_unit
                         ),
@@ -526,89 +513,44 @@ with tab1:
     )
 
     # -----------------------------------------------------
-    # VALIDATION
+    # CALCULATE MDD AND OMC
     # -----------------------------------------------------
 
     moisture = df[
         "Moisture Content (%)"
-    ].values
+    ].to_numpy()
 
     dry_density = df[
         "Dry Density (kg/m³)"
-    ].values
+    ].to_numpy()
 
-    if len(set(moisture)) != len(moisture):
-
-        st.error(
-            "Each moisture content value must be different."
-        )
-
-        st.stop()
-
-    if np.any(dry_density <= 0):
-
-        st.error(
-            "Dry density values must be greater than zero."
-        )
-
-        st.stop()
-
-    # -----------------------------------------------------
-    # CURVE FIT
-    # -----------------------------------------------------
-
-    coefficients = np.polyfit(
+    mdd, omc, coefficients = calculate_mdd_omc(
         moisture,
-        dry_density,
-        2
+        dry_density
     )
 
     a, b, c = coefficients
 
-    measured_max_index = np.argmax(
-        dry_density
+    # -----------------------------------------------------
+    # ZAV CALCULATION
+    # -----------------------------------------------------
+
+    df["ZAV Density (kg/m³)"] = (
+        specific_gravity
+        * water_density
+        /
+        (
+            1
+            +
+            df["Moisture Content (%)"] / 100
+        )
     )
 
-    measured_mdd = dry_density[
-        measured_max_index
-    ]
-
-    measured_omc = moisture[
-        measured_max_index
-    ]
-
-    # Default to measured maximum
-    mdd = measured_mdd
-    omc = measured_omc
-
-    # Quadratic fit
-    if a < 0:
-
-        estimated_omc = -b / (2 * a)
-
-        estimated_mdd = (
-            a * estimated_omc**2
-            + b * estimated_omc
-            + c
-        )
-
-        # Only accept vertex if it lies inside
-        # the measured moisture range.
-
-        if (
-            moisture.min()
-            <= estimated_omc
-            <= moisture.max()
-        ):
-
-            omc = estimated_omc
-            mdd = estimated_mdd
-
     # -----------------------------------------------------
-    # RESULT CARDS
+    # RESULTS
     # -----------------------------------------------------
 
-    st.subheader("Proctor Results")
+    st.subheader("Proctor Test Results")
 
     result_col1, result_col2, result_col3 = st.columns(3)
 
@@ -617,19 +559,22 @@ with tab1:
         st.markdown(
             f"""
             <div class="result-card">
+                <div class="result-label">
+                    Maximum Dry Density
+                </div>
 
-            <div class="result-label">
-            Maximum Dry Density (MDD)
-            </div>
+                <div class="result-value">
+                    {
+                        kg_m3_to_selected_density(
+                            mdd,
+                            density_unit
+                        ): .3f
+                    }
+                </div>
 
-            <div class="result-value">
-            {convert_density_from_kg_m3(mdd, density_unit):.3f}
-            </div>
-
-            <div class="result-label">
-            {density_unit}
-            </div>
-
+                <div class="result-label">
+                    {density_unit}
+                </div>
             </div>
             """,
             unsafe_allow_html=True
@@ -640,15 +585,13 @@ with tab1:
         st.markdown(
             f"""
             <div class="result-card">
+                <div class="result-label">
+                    Optimum Moisture Content
+                </div>
 
-            <div class="result-label">
-            Optimum Moisture Content (OMC)
-            </div>
-
-            <div class="result-value">
-            {omc:.2f}%
-            </div>
-
+                <div class="result-value">
+                    {omc:.2f}%
+                </div>
             </div>
             """,
             unsafe_allow_html=True
@@ -659,15 +602,13 @@ with tab1:
         st.markdown(
             f"""
             <div class="result-card">
+                <div class="result-label">
+                    Specific Gravity
+                </div>
 
-            <div class="result-label">
-            Specific Gravity
-            </div>
-
-            <div class="result-value">
-            {specific_gravity:.2f}
-            </div>
-
+                <div class="result-value">
+                    {specific_gravity:.2f}
+                </div>
             </div>
             """,
             unsafe_allow_html=True
@@ -697,37 +638,79 @@ with tab1:
 
         y_curve = np.full_like(
             x_curve,
-            measured_mdd
+            np.max(dry_density)
         )
 
+    # Zero Air Voids curve
     zav_curve = (
-        specific_gravity *
-        water_density
+        specific_gravity
+        * water_density
         /
         (
-            1 +
+            1
+            +
             x_curve / 100
         )
     )
+
+    # Convert curves to selected unit
+    y_curve_display = np.array(
+        [
+            kg_m3_to_selected_density(
+                value,
+                density_unit
+            )
+            for value in y_curve
+        ]
+    )
+
+    zav_curve_display = np.array(
+        [
+            kg_m3_to_selected_density(
+                value,
+                density_unit
+            )
+            for value in zav_curve
+        ]
+    )
+
+    dry_density_display = np.array(
+        [
+            kg_m3_to_selected_density(
+                value,
+                density_unit
+            )
+            for value in dry_density
+        ]
+    )
+
+    mdd_display = kg_m3_to_selected_density(
+        mdd,
+        density_unit
+    )
+
+    # -----------------------------------------------------
+    # PLOT
+    # -----------------------------------------------------
 
     fig, ax = plt.subplots(
         figsize=(10, 6)
     )
 
-    # Experimental data
+    # Laboratory points
     ax.scatter(
         moisture,
-        dry_density,
+        dry_density_display,
         s=70,
         label="Laboratory Data"
     )
 
-    # Fitted curve
+    # Fitted compaction curve
     if a < 0:
 
         ax.plot(
             x_curve,
-            y_curve,
+            y_curve_display,
             linewidth=2,
             label="Fitted Compaction Curve"
         )
@@ -735,7 +718,7 @@ with tab1:
     # ZAV curve
     ax.plot(
         x_curve,
-        zav_curve,
+        zav_curve_display,
         linestyle="--",
         linewidth=1.5,
         label="Zero Air Voids Curve"
@@ -744,10 +727,10 @@ with tab1:
     # MDD point
     ax.scatter(
         [omc],
-        [mdd],
+        [mdd_display],
         s=110,
         marker="X",
-        label=f"MDD = {convert_density_from_kg_m3(mdd, density_unit):.3f}"
+        label=f"MDD = {mdd_display:.3f} {density_unit}"
     )
 
     # OMC line
@@ -759,7 +742,7 @@ with tab1:
 
     # MDD line
     ax.axhline(
-        mdd,
+        mdd_display,
         linestyle=":",
         linewidth=1
     )
@@ -786,43 +769,57 @@ with tab1:
     st.pyplot(fig)
 
     # -----------------------------------------------------
-    # DOWNLOAD DATA
+    # ENGINEERING CALCULATION DETAILS
     # -----------------------------------------------------
 
-    export_df = pd.DataFrame(
-        {
-            "Point":
-                df["Point"].astype(int),
+    with st.expander(
+        "Show calculation details"
+    ):
 
-            "Moisture Content (%)":
-                df["Moisture Content (%)"],
+        st.markdown(
+            """
+            ### Wet Soil Mass
 
-            "Dry Density":
-                df["Dry Density (kg/m³)"].apply(
-                    lambda x:
-                    convert_density_from_kg_m3(
-                        x,
-                        density_unit
-                    )
-                ),
+            The wet soil mass is calculated from:
 
-            "ZAV Density":
-                df["ZAV Density (kg/m³)"].apply(
-                    lambda x:
-                    convert_density_from_kg_m3(
-                        x,
-                        density_unit
-                    )
-                )
-        }
-    )
+            **Wet Soil Mass = Wet Soil + Mould Mass − Mould Mass**
+
+            ### Wet Density
+
+            The mould factor is the inverse of mould volume:
+
+            **Mould Factor = 1 / Mould Volume**
+
+            Therefore:
+
+            **Wet Density = Wet Soil Mass × Mould Factor**
+
+            ### Dry Density
+
+            **Dry Density = Wet Density / (1 + w)**
+
+            where **w** is the moisture content expressed
+            as a decimal.
+
+            ### Zero Air Voids
+
+            The theoretical zero-air-voids density is calculated
+            using the specific gravity of the soil solids.
+            """
+        )
+
+    # -----------------------------------------------------
+    # DOWNLOAD RESULTS
+    # -----------------------------------------------------
+
+    export_df = display_df.copy()
 
     csv_data = export_df.to_csv(
         index=False
     ).encode("utf-8")
 
     st.download_button(
-        label="⬇️ Download Test Data (CSV)",
+        label="⬇️ Download Test Results (CSV)",
         data=csv_data,
         file_name="proctor_test_results.csv",
         mime="text/csv"
@@ -838,7 +835,7 @@ with tab2:
     st.header("Field Compaction Assessment")
 
     st.write(
-        "Compare a field dry density against the laboratory "
+        "Compare field dry density with the laboratory "
         "Maximum Dry Density."
     )
 
@@ -849,8 +846,10 @@ with tab2:
         field_density = st.number_input(
             f"Field Dry Density ({density_unit})",
             min_value=0.001,
-            value=1750.0,
-            step=1.0
+            value=1.75 if density_unit != "kg/m³"
+            else 1750.0,
+            step=0.001 if density_unit != "kg/m³"
+            else 1.0
         )
 
     with field_col2:
@@ -858,8 +857,10 @@ with tab2:
         laboratory_mdd = st.number_input(
             f"Laboratory MDD ({density_unit})",
             min_value=0.001,
-            value=1800.0,
-            step=1.0
+            value=1.80 if density_unit != "kg/m³"
+            else 1800.0,
+            step=0.001 if density_unit != "kg/m³"
+            else 1.0
         )
 
     st.subheader("Compaction Requirement")
@@ -877,30 +878,45 @@ with tab2:
         type="primary"
     ):
 
+        field_density_kg_m3 = (
+            selected_density_to_kg_m3(
+                field_density,
+                density_unit
+            )
+        )
+
+        laboratory_mdd_kg_m3 = (
+            selected_density_to_kg_m3(
+                laboratory_mdd,
+                density_unit
+            )
+        )
+
         percent_compaction = (
-            field_density /
-            laboratory_mdd
+            field_density_kg_m3
+            /
+            laboratory_mdd_kg_m3
         ) * 100
+
+        difference = (
+            percent_compaction
+            - requirement
+        )
 
         st.subheader(
             "Field Compaction Result"
         )
 
-        col1, col2 = st.columns(2)
+        result_col1, result_col2 = st.columns(2)
 
-        with col1:
+        with result_col1:
 
             st.metric(
                 "Percentage Compaction",
                 f"{percent_compaction:.2f}%"
             )
 
-        with col2:
-
-            difference = (
-                percent_compaction
-                - requirement
-            )
+        with result_col2:
 
             st.metric(
                 "Difference from Requirement",
@@ -910,24 +926,22 @@ with tab2:
         if percent_compaction >= requirement:
 
             st.success(
-                f"PASS — The field compaction of "
-                f"{percent_compaction:.2f}% meets the "
-                f"minimum requirement of "
-                f"{requirement:.2f}%."
+                f"PASS — Field compaction is "
+                f"{percent_compaction:.2f}%, meeting the "
+                f"minimum requirement of {requirement:.2f}%."
             )
 
         else:
 
             st.error(
-                f"FAIL — The field compaction of "
-                f"{percent_compaction:.2f}% is below the "
-                f"minimum requirement of "
-                f"{requirement:.2f}%."
+                f"FAIL — Field compaction is "
+                f"{percent_compaction:.2f}%, below the "
+                f"minimum requirement of {requirement:.2f}%."
             )
 
         st.info(
             """
-            Percentage compaction is calculated as:
+            **Percentage Compaction**
 
             % Compaction =
             (Field Dry Density / Laboratory MDD) × 100
@@ -944,75 +958,71 @@ with tab3:
     st.header("Engineering Summary")
 
     st.write(
-        "Key information about the Proctor compaction analysis."
+        "Reference information for the Proctor compaction "
+        "calculations used by this application."
     )
 
-    st.subheader("Test Information")
+    st.subheader("Current Test Configuration")
 
     summary = pd.DataFrame(
         {
             "Parameter": [
                 "Compaction Method",
+                "Number of Test Points",
+                "Mould Factor",
+                "Mould Mass",
                 "Specific Gravity",
-                "Density Unit",
-                "Laboratory MDD",
-                "Laboratory OMC"
+                "Water Density",
+                "Density Unit"
             ],
 
             "Value": [
                 test_method,
-                specific_gravity,
-                density_unit,
-                "Calculated in Laboratory tab",
-                "Calculated in Laboratory tab"
+                num_points,
+                f"{mould_factor:.9f} cm⁻³",
+                f"{mould_mass:.2f} g",
+                f"{specific_gravity:.2f}",
+                f"{water_density:.1f} kg/m³",
+                density_unit
             ]
         }
     )
 
     st.table(summary)
 
-    st.subheader(
-        "Engineering Relationships"
-    )
+    st.subheader("Calculation Relationships")
 
     st.markdown(
         """
-        ### Dry Density
+        ### 1. Wet Soil Mass
 
-        When wet/bulk density is known:
+        Wet Soil Mass is obtained by subtracting the mould
+        mass from the combined wet soil + mould mass.
 
-        \[
-        \\rho_d =
-        \\frac{\\rho}{1+w}
-        \]
+        ### 2. Wet Density
 
-        Where:
+        Wet density is obtained using the mould factor.
 
-        - **ρd** = dry density
-        - **ρ** = wet/bulk density
-        - **w** = moisture content as a decimal
+        ### 3. Dry Density
 
-        ### Percentage Compaction
+        Dry density is obtained by correcting wet density
+        for the measured moisture content.
 
-        \[
-        \\%\\ Compaction =
-        \\frac{\\rho_{d(field)}}
-        {\\rho_{d(max)}} \\times 100
-        \]
+        ### 4. Maximum Dry Density
 
-        ### Zero Air Voids
+        MDD is the maximum dry density obtained from the
+        fitted moisture-density relationship.
 
-        \[
-        \\rho_{ZAV} =
-        \\frac{G_s \\rho_w}
-        {1+w}
-        \]
+        ### 5. Optimum Moisture Content
 
-        Where:
+        OMC is the moisture content corresponding to the
+        maximum dry density.
 
-        - **Gs** = specific gravity of soil solids
-        - **ρw** = density of water
-        - **w** = moisture content as a decimal
+        ### 6. Zero Air Voids
+
+        The Zero Air Voids curve represents the theoretical
+        dry density at 100% saturation for the specified
+        specific gravity.
         """
     )
 
@@ -1023,8 +1033,8 @@ with tab3:
         This software is an engineering calculation aid.
         Results should be checked against the applicable
         laboratory standard, project specification, sample
-        preparation procedure, and engineering judgement before
-        being used for construction acceptance or design.
+        preparation procedure, and engineering judgement
+        before being used for construction acceptance or design.
         """
     )
 
@@ -1036,11 +1046,8 @@ with tab3:
 st.markdown(
     """
     <div class="footer">
-
-    Built for engineers. Powered by code.<br>
-
-    Automation_hub Engineering Group
-
+        Built for engineers. Powered by code.<br>
+        Automation_hub Engineering Group
     </div>
     """,
     unsafe_allow_html=True
