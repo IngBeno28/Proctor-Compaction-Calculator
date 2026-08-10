@@ -1082,25 +1082,3 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-**The key unit conversion is now exactly:**
-
-[
-\text{Wet Soil Mass (kg)}
-=========================
-
-\frac{\text{Wet Soil + Mould Mass (g)}-\text{Mould Mass (g)}}{1000}
-]
-
-then:
-
-[
-\boxed{\rho_{wet}=\text{Wet Soil Mass (kg)}\times MF;(m^{-3})}
-]
-
-So, for example, with a mould factor of `1059.32 m⁻³` and 1.0 kg of wet soil:
-
-[
-1.0\times1059.32=1059.32;kg/m^3
-]
-
-That's the SI-consistent implementation we want.
