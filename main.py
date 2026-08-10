@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -54,10 +55,6 @@ st.markdown(
     .result-label {
         font-size: 0.9rem;
         color: #666;
-    }
-
-    .calculated-value {
-        font-weight: 600;
     }
 
     .footer {
@@ -292,14 +289,14 @@ with tab1:
     with mould_col1:
 
         mould_factor = st.number_input(
-            "Mould Factor (cm⁻³)",
-            min_value=0.000001,
-            value=0.001061,
-            format="%.9f",
+            "Mould Factor (m⁻³)",
+            min_value=0.1,
+            value=1059.32,
+            step=0.01,
+            format="%.2f",
             help=(
                 "Mould factor is the inverse of mould volume. "
-                "When mass is entered in grams, the resulting "
-                "wet density is obtained in g/cm³."
+                "Enter the mould factor in m⁻³."
             )
         )
 
@@ -314,8 +311,9 @@ with tab1:
 
     st.caption(
         "Mould factor = 1 / mould volume. "
-        "For consistency, mould factor is entered in cm⁻³ "
-        "when specimen masses are entered in grams."
+        "Enter the mould factor in m⁻³. "
+        "Wet soil mass is converted from grams to kilograms "
+        "before calculating wet density."
     )
 
     st.markdown("---")
@@ -327,8 +325,8 @@ with tab1:
     st.subheader("Proctor Test Specimens")
 
     st.write(
-        "Enter the wet soil + mould mass and moisture "
-        "content for each specimen."
+        "Enter the measured Wet Soil + Mould Mass and "
+        "Moisture Content for each specimen."
     )
 
     specimen_rows = []
@@ -363,24 +361,24 @@ with tab1:
             )
 
         # -------------------------------------------------
-        # AUTOMATIC CALCULATIONS
+        # CALCULATED VALUES
         # -------------------------------------------------
 
-        wet_soil_mass = (
+        # Wet soil mass in grams
+        wet_soil_mass_g = (
             wet_soil_mould_mass
             - mould_mass
         )
 
-        # Wet density in g/cm³
-        wet_density_g_cm3 = (
-            wet_soil_mass
-            * mould_factor
+        # Convert grams to kilograms
+        wet_soil_mass_kg = (
+            wet_soil_mass_g / 1000
         )
 
-        # Convert to kg/m³
+        # Wet density directly in kg/m³
         wet_density_kg_m3 = (
-            wet_density_g_cm3
-            * 1000
+            wet_soil_mass_kg
+            * mould_factor
         )
 
         # Dry density
@@ -402,7 +400,7 @@ with tab1:
                 "Wet Soil + Mould Mass (g)":
                     wet_soil_mould_mass,
                 "Wet Soil Mass (g)":
-                    wet_soil_mass,
+                    wet_soil_mass_g,
                 "Wet Density (kg/m³)":
                     wet_density_kg_m3,
                 "Dry Density (kg/m³)":
@@ -411,7 +409,7 @@ with tab1:
         )
 
     # -----------------------------------------------------
-    # CREATE DATAFRAME
+    # DATAFRAME
     # -----------------------------------------------------
 
     df = pd.DataFrame(specimen_rows)
@@ -426,7 +424,7 @@ with tab1:
 
         st.error(
             "Wet Soil Mass must be greater than zero. "
-            "Check the mould mass and wet soil + mould mass."
+            "Check the mould mass and Wet Soil + Mould Mass."
         )
 
         st.stop()
@@ -513,7 +511,7 @@ with tab1:
     )
 
     # -----------------------------------------------------
-    # CALCULATE MDD AND OMC
+    # MDD AND OMC
     # -----------------------------------------------------
 
     moisture = df[
@@ -532,7 +530,7 @@ with tab1:
     a, b, c = coefficients
 
     # -----------------------------------------------------
-    # ZAV CALCULATION
+    # ZAV CURVE
     # -----------------------------------------------------
 
     df["ZAV Density (kg/m³)"] = (
@@ -556,25 +554,27 @@ with tab1:
 
     with result_col1:
 
+        mdd_display = kg_m3_to_selected_density(
+            mdd,
+            density_unit
+        )
+
         st.markdown(
             f"""
             <div class="result-card">
+
                 <div class="result-label">
                     Maximum Dry Density
                 </div>
 
                 <div class="result-value">
-                    {
-                        kg_m3_to_selected_density(
-                            mdd,
-                            density_unit
-                        ): .3f
-                    }
+                    {mdd_display:.3f}
                 </div>
 
                 <div class="result-label">
                     {density_unit}
                 </div>
+
             </div>
             """,
             unsafe_allow_html=True
@@ -585,6 +585,7 @@ with tab1:
         st.markdown(
             f"""
             <div class="result-card">
+
                 <div class="result-label">
                     Optimum Moisture Content
                 </div>
@@ -592,6 +593,7 @@ with tab1:
                 <div class="result-value">
                     {omc:.2f}%
                 </div>
+
             </div>
             """,
             unsafe_allow_html=True
@@ -602,6 +604,7 @@ with tab1:
         st.markdown(
             f"""
             <div class="result-card">
+
                 <div class="result-label">
                     Specific Gravity
                 </div>
@@ -609,6 +612,7 @@ with tab1:
                 <div class="result-value">
                     {specific_gravity:.2f}
                 </div>
+
             </div>
             """,
             unsafe_allow_html=True
@@ -641,7 +645,7 @@ with tab1:
             np.max(dry_density)
         )
 
-    # Zero Air Voids curve
+    # ZAV curve
     zav_curve = (
         specific_gravity
         * water_density
@@ -653,7 +657,7 @@ with tab1:
         )
     )
 
-    # Convert curves to selected unit
+    # Convert to selected density unit
     y_curve_display = np.array(
         [
             kg_m3_to_selected_density(
@@ -684,11 +688,6 @@ with tab1:
         ]
     )
 
-    mdd_display = kg_m3_to_selected_density(
-        mdd,
-        density_unit
-    )
-
     # -----------------------------------------------------
     # PLOT
     # -----------------------------------------------------
@@ -697,7 +696,6 @@ with tab1:
         figsize=(10, 6)
     )
 
-    # Laboratory points
     ax.scatter(
         moisture,
         dry_density_display,
@@ -705,7 +703,6 @@ with tab1:
         label="Laboratory Data"
     )
 
-    # Fitted compaction curve
     if a < 0:
 
         ax.plot(
@@ -715,7 +712,6 @@ with tab1:
             label="Fitted Compaction Curve"
         )
 
-    # ZAV curve
     ax.plot(
         x_curve,
         zav_curve_display,
@@ -724,23 +720,24 @@ with tab1:
         label="Zero Air Voids Curve"
     )
 
-    # MDD point
     ax.scatter(
         [omc],
         [mdd_display],
         s=110,
         marker="X",
-        label=f"MDD = {mdd_display:.3f} {density_unit}"
+        label=(
+            f"MDD = "
+            f"{mdd_display:.3f} "
+            f"{density_unit}"
+        )
     )
 
-    # OMC line
     ax.axvline(
         omc,
         linestyle=":",
         linewidth=1
     )
 
-    # MDD line
     ax.axhline(
         mdd_display,
         linestyle=":",
@@ -769,7 +766,7 @@ with tab1:
     st.pyplot(fig)
 
     # -----------------------------------------------------
-    # ENGINEERING CALCULATION DETAILS
+    # CALCULATION DETAILS
     # -----------------------------------------------------
 
     with st.expander(
@@ -778,33 +775,56 @@ with tab1:
 
         st.markdown(
             """
-            ### Wet Soil Mass
+            ### 1. Wet Soil Mass
 
-            The wet soil mass is calculated from:
+            Wet Soil Mass is calculated as:
 
             **Wet Soil Mass = Wet Soil + Mould Mass − Mould Mass**
 
-            ### Wet Density
+            ### 2. Mould Factor
 
             The mould factor is the inverse of mould volume:
 
             **Mould Factor = 1 / Mould Volume**
 
-            Therefore:
+            Since the mould factor is entered in **m⁻³**,
+            the wet soil mass is converted from grams to
+            kilograms before calculating density.
+
+            ### 3. Wet Density
 
             **Wet Density = Wet Soil Mass × Mould Factor**
 
-            ### Dry Density
+            The resulting density is in **kg/m³**.
+
+            ### 4. Dry Density
 
             **Dry Density = Wet Density / (1 + w)**
 
             where **w** is the moisture content expressed
             as a decimal.
 
-            ### Zero Air Voids
+            ### 5. Maximum Dry Density
 
-            The theoretical zero-air-voids density is calculated
-            using the specific gravity of the soil solids.
+            MDD is obtained from the fitted moisture-density
+            relationship.
+
+            ### 6. Optimum Moisture Content
+
+            OMC is the moisture content corresponding to the
+            Maximum Dry Density.
+
+            ### 7. Zero Air Voids
+
+            The Zero Air Voids curve is calculated using:
+
+            **ρZAV = Gs × ρw / (1 + w)**
+
+            where:
+
+            - **Gs** = specific gravity of soil solids
+            - **ρw** = density of water
+            - **w** = moisture content as a decimal
             """
         )
 
@@ -843,24 +863,34 @@ with tab2:
 
     with field_col1:
 
+        if density_unit == "kg/m³":
+            default_field_density = 1750.0
+            density_step = 1.0
+
+        else:
+            default_field_density = 1.75
+            density_step = 0.001
+
         field_density = st.number_input(
             f"Field Dry Density ({density_unit})",
             min_value=0.001,
-            value=1.75 if density_unit != "kg/m³"
-            else 1750.0,
-            step=0.001 if density_unit != "kg/m³"
-            else 1.0
+            value=default_field_density,
+            step=density_step
         )
 
     with field_col2:
 
+        if density_unit == "kg/m³":
+            default_mdd = 1800.0
+
+        else:
+            default_mdd = 1.80
+
         laboratory_mdd = st.number_input(
             f"Laboratory MDD ({density_unit})",
             min_value=0.001,
-            value=1.80 if density_unit != "kg/m³"
-            else 1800.0,
-            step=0.001 if density_unit != "kg/m³"
-            else 1.0
+            value=default_mdd,
+            step=density_step
         )
 
     st.subheader("Compaction Requirement")
@@ -979,7 +1009,7 @@ with tab3:
             "Value": [
                 test_method,
                 num_points,
-                f"{mould_factor:.9f} cm⁻³",
+                f"{mould_factor:.2f} m⁻³",
                 f"{mould_mass:.2f} g",
                 f"{specific_gravity:.2f}",
                 f"{water_density:.1f} kg/m³",
@@ -994,35 +1024,35 @@ with tab3:
 
     st.markdown(
         """
-        ### 1. Wet Soil Mass
+        ### Wet Soil Mass
 
-        Wet Soil Mass is obtained by subtracting the mould
-        mass from the combined wet soil + mould mass.
+        **Wet Soil Mass = Wet Soil + Mould Mass − Mould Mass**
 
-        ### 2. Wet Density
+        ### Wet Density
 
-        Wet density is obtained using the mould factor.
+        **Wet Density = Wet Soil Mass × Mould Factor**
 
-        ### 3. Dry Density
+        where the wet soil mass is expressed in kg and the
+        mould factor is expressed in m⁻³.
 
-        Dry density is obtained by correcting wet density
-        for the measured moisture content.
+        Therefore, the resulting wet density is in kg/m³.
 
-        ### 4. Maximum Dry Density
+        ### Dry Density
 
-        MDD is the maximum dry density obtained from the
-        fitted moisture-density relationship.
+        **Dry Density = Wet Density / (1 + w)**
 
-        ### 5. Optimum Moisture Content
+        where **w** is the moisture content expressed as a decimal.
 
-        OMC is the moisture content corresponding to the
-        maximum dry density.
+        ### Percentage Compaction
 
-        ### 6. Zero Air Voids
+        **% Compaction = (Field Dry Density / Laboratory MDD) × 100**
+
+        ### Zero Air Voids
+
+        **ρZAV = Gs × ρw / (1 + w)**
 
         The Zero Air Voids curve represents the theoretical
-        dry density at 100% saturation for the specified
-        specific gravity.
+        dry density corresponding to 100% saturation.
         """
     )
 
@@ -1052,3 +1082,27 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+```
+
+**The key unit conversion is now exactly:**
+
+[
+\text{Wet Soil Mass (kg)}
+=========================
+
+\frac{\text{Wet Soil + Mould Mass (g)}-\text{Mould Mass (g)}}{1000}
+]
+
+then:
+
+[
+\boxed{\rho_{wet}=\text{Wet Soil Mass (kg)}\times MF;(m^{-3})}
+]
+
+So, for example, with a mould factor of `1059.32 m⁻³` and 1.0 kg of wet soil:
+
+[
+1.0\times1059.32=1059.32;kg/m^3
+]
+
+That's the SI-consistent implementation we want.
