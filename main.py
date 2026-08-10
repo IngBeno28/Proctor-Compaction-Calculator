@@ -543,74 +543,41 @@ with tab1:
         )
     )
 
-    # -----------------------------------------------------
-    # RESULTS
-    # -----------------------------------------------------
+  # -----------------------------------------------------
+# RESULTS
+# -----------------------------------------------------
 
-    st.subheader("Proctor Test Results")
+st.subheader("Proctor Test Results")
 
-    result_col1, result_col2, result_col3 = st.columns(3)
+result_col1, result_col2, result_col3 = st.columns(3)
 
-    with result_col1:
+with result_col1:
 
-        mdd_display = kg_m3_to_selected_density(
-            mdd,
-            density_unit
-        )
+    mdd_display = kg_m3_to_selected_density(
+        mdd,
+        density_unit
+    )
 
-        st.markdown(
-            f"""
-            <div class="result-card">
+    st.metric(
+        label="Maximum Dry Density",
+        value=f"{mdd_display:.3f} {density_unit}"
+    )
 
-                <div class="result-label">
-                    Maximum Dry Density
-                </div>
 
-                <div class="result-value">
-                    {mdd_display:.3f}
-                </div>
+with result_col2:
 
-                <div class="result-label">
-                    {density_unit}
-                </div>
+    st.metric(
+        label="Optimum Moisture Content",
+        value=f"{omc:.2f}%"
+    )
 
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
 
-    with result_col2:
+with result_col3:
 
-        st.markdown(
-            f"""
-            <div class="result-card">
-
-                <div class="result-label">
-                    Optimum Moisture Content
-                </div>
-
-                <div class="result-value">
-                    {omc:.2f}%
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    with result_col3:
-
-        st.markdown(
-            f"""
-            <div class="result-card">
-
-                <div class="result-label">
-                    Specific Gravity
-                </div>
-
-                <div class="result-value">
-                    {specific_gravity:.2f}
-                </div>
+    st.metric(
+        label="Specific Gravity",
+        value=f"{specific_gravity:.2f}"
+    )
 
             </div>
             """,
