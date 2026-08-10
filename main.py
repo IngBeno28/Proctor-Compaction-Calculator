@@ -543,45 +543,38 @@ with tab1:
         )
     )
 
-  # -----------------------------------------------------
-# RESULTS
-# -----------------------------------------------------
+    # -----------------------------------------------------
+    # RESULTS
+    # -----------------------------------------------------
 
-st.subheader("Proctor Test Results")
+    st.subheader("Proctor Test Results")
 
-result_col1, result_col2, result_col3 = st.columns(3)
+    result_col1, result_col2, result_col3 = st.columns(3)
 
-with result_col1:
+    with result_col1:
 
-    mdd_display = kg_m3_to_selected_density(
-        mdd,
-        density_unit
-    )
+        mdd_display = kg_m3_to_selected_density(
+            mdd,
+            density_unit
+        )
 
-    st.metric(
-        label="Maximum Dry Density",
-        value=f"{mdd_display:.3f} {density_unit}"
-    )
+        st.metric(
+            label="Maximum Dry Density",
+            value=f"{mdd_display:.3f} {density_unit}"
+        )
 
+    with result_col2:
 
-with result_col2:
+        st.metric(
+            label="Optimum Moisture Content",
+            value=f"{omc:.2f}%"
+        )
 
-    st.metric(
-        label="Optimum Moisture Content",
-        value=f"{omc:.2f}%"
-    )
+    with result_col3:
 
-
-with result_col3:
-
-    st.metric(
-        label="Specific Gravity",
-        value=f"{specific_gravity:.2f}"
-    )
-
-            </div>
-            """,
-            unsafe_allow_html=True
+        st.metric(
+            label="Specific Gravity",
+            value=f"{specific_gravity:.2f}"
         )
 
     # -----------------------------------------------------
@@ -1048,4 +1041,3 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
