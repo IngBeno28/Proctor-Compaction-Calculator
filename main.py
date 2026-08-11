@@ -3,6 +3,23 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from io import BytesIO
+from datetime import datetime
+
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Table,
+    TableStyle,
+    Paragraph,
+    Spacer,
+    Image as RLImage
+)
+
 
 # =========================================================
 # PAGE CONFIGURATION
@@ -212,6 +229,222 @@ def calculate_mdd_omc(moisture, dry_density):
             mdd = estimated_mdd
 
     return mdd, omc, coefficients
+
+
+# =========================================================
+# PDF REPORT GENERATION
+# =========================================================
+
+def add_watermark_and_footer(canvas, doc):
+    """Draw a diagonal Automation_hub watermark and footer on every page."""
+
+    page_width, page_height = letter
+
+    # Diagonal watermark
+    canvas.saveState()
+    canvas.setFont("Helvetica-Bold", 60)
+    canvas.setFillColor(colors.Color(0, 0, 0, alpha=0.06))
+    canvas.translate(page_width / 2, page_height / 2)
+    canvas.rotate(45)
+    canvas.drawCentredString(0, 0, "AUTOMATION_HUB")
+    canvas.restoreState()
+
+    # Footer
+    canvas.saveState()
+    canvas.setFont("Helvetica", 8)
+    canvas.setFillColor(colors.grey)
+    canvas.drawString(
+        0.75 * inch,
+        0.5 * inch,
+        f"Automation_hub Engineering Group | Generated "
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    )
+    canvas.drawRightString(
+        page_width - 0.75 * inch,
+        0.5 * inch,
+        f"Page {doc.page}"
+    )
+    canvas.restoreState()
+
+
+def generate_pdf_report(
+    test_method,
+    density_unit,
+    specific_gravity,
+    water_density,
+    mould_factor,
+    mould_mass,
+    display_df,
+    mdd_display,
+    omc,
+    fig
+):
+    """Build a branded, watermarked PDF report of the Proctor test results."""
+
+    buffer = BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        topMargin=0.9 * inch,
+        bottomMargin=0.9 * inch,
+        leftMargin=0.75 * inch,
+        rightMargin=0.75 * inch
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "ReportTitle",
+        parent=styles["Heading1"],
+        alignment=TA_CENTER,
+        fontSize=20,
+        textColor=colors.HexColor("#1a1a1a"),
+        spaceAfter=2
+    )
+
+    brand_style = ParagraphStyle(
+        "ReportBrand",
+        parent=styles["Normal"],
+        alignment=TA_CENTER,
+        fontSize=11,
+        textColor=colors.HexColor("#888888"),
+        spaceAfter=18
+    )
+
+    section_style = ParagraphStyle(
+        "SectionHeader",
+        parent=styles["Heading2"],
+        fontSize=13,
+        spaceBefore=16,
+        spaceAfter=8,
+        textColor=colors.HexColor("#1a1a1a")
+    )
+
+    disclaimer_style = ParagraphStyle(
+        "Disclaimer",
+        parent=styles["Normal"],
+        fontSize=8,
+        textColor=colors.grey
+    )
+
+    elements = []
+
+    # ---- Header / logo block ----
+    elements.append(Paragraph("🏗️ Automation_hub", title_style))
+    elements.append(
+        Paragraph(
+            "Proctor Compaction Calculator &mdash; Engineering Test Report",
+            brand_style
+        )
+    )
+
+    # ---- Test configuration ----
+    elements.append(Paragraph("Test Configuration", section_style))
+
+    config_data = [
+        ["Compaction Method", test_method],
+        ["Specific Gravity (Gs)", f"{specific_gravity:.2f}"],
+        ["Water Density", f"{water_density:.1f} kg/m³"],
+        ["Mould Factor", f"{mould_factor:.2f} m⁻³"],
+        ["Mould Mass", f"{mould_mass:.2f} g"],
+        ["Density Unit", density_unit]
+    ]
+
+    config_table = Table(config_data, colWidths=[2.5 * inch, 3.5 * inch])
+    config_table.setStyle(
+        TableStyle(
+            [
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#555555")),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd"))
+            ]
+        )
+    )
+    elements.append(config_table)
+
+    # ---- Specimen results ----
+    elements.append(Paragraph("Calculated Specimen Results", section_style))
+
+    table_data = (
+        [list(display_df.columns)]
+        + display_df.astype(str).values.tolist()
+    )
+
+    specimen_table = Table(table_data, repeatRows=1)
+    specimen_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd")),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 5)
+            ]
+        )
+    )
+    elements.append(specimen_table)
+
+    # ---- Key results ----
+    elements.append(Paragraph("Proctor Test Results", section_style))
+
+    results_data = [
+        ["Maximum Dry Density", f"{mdd_display:.3f} {density_unit}"],
+        ["Optimum Moisture Content", f"{omc:.2f}%"],
+        ["Specific Gravity", f"{specific_gravity:.2f}"]
+    ]
+
+    results_table = Table(results_data, colWidths=[3 * inch, 3 * inch])
+    results_table.setStyle(
+        TableStyle(
+            [
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("FONTNAME", (1, 0), (1, -1), "Helvetica-Bold"),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd"))
+            ]
+        )
+    )
+    elements.append(results_table)
+
+    # ---- Compaction curve chart ----
+    elements.append(Paragraph("Moisture–Density Relationship", section_style))
+
+    img_buffer = BytesIO()
+    fig.savefig(img_buffer, format="png", dpi=150, bbox_inches="tight")
+    img_buffer.seek(0)
+
+    elements.append(
+        RLImage(img_buffer, width=6.5 * inch, height=3.9 * inch)
+    )
+
+    # ---- Disclaimer ----
+    elements.append(Spacer(1, 16))
+    elements.append(
+        Paragraph(
+            "Engineering Disclaimer: This report is generated by an "
+            "engineering calculation aid. Results should be verified "
+            "against the applicable laboratory standard, project "
+            "specification, and engineering judgement before use for "
+            "construction acceptance or design.",
+            disclaimer_style
+        )
+    )
+
+    doc.build(
+        elements,
+        onFirstPage=add_watermark_and_footer,
+        onLaterPages=add_watermark_and_footer
+    )
+
+    buffer.seek(0)
+    return buffer
 
 
 # =========================================================
@@ -549,32 +782,39 @@ with tab1:
 
     st.subheader("Proctor Test Results")
 
+    mdd_display = kg_m3_to_selected_density(
+        mdd,
+        density_unit
+    )
+
     result_col1, result_col2, result_col3 = st.columns(3)
 
     with result_col1:
-
-        mdd_display = kg_m3_to_selected_density(
-            mdd,
-            density_unit
-        )
-
-        st.metric(
-            label="Maximum Dry Density",
-            value=f"{mdd_display:.3f} {density_unit}"
+        st.markdown(
+            f'<div class="result-card">'
+            f'<div class="result-label">Maximum Dry Density</div>'
+            f'<div class="result-value">{mdd_display:.3f}</div>'
+            f'<div class="result-label">{density_unit}</div>'
+            f'</div>',
+            unsafe_allow_html=True
         )
 
     with result_col2:
-
-        st.metric(
-            label="Optimum Moisture Content",
-            value=f"{omc:.2f}%"
+        st.markdown(
+            f'<div class="result-card">'
+            f'<div class="result-label">Optimum Moisture Content</div>'
+            f'<div class="result-value">{omc:.2f}%</div>'
+            f'</div>',
+            unsafe_allow_html=True
         )
 
     with result_col3:
-
-        st.metric(
-            label="Specific Gravity",
-            value=f"{specific_gravity:.2f}"
+        st.markdown(
+            f'<div class="result-card">'
+            f'<div class="result-label">Specific Gravity</div>'
+            f'<div class="result-value">{specific_gravity:.2f}</div>'
+            f'</div>',
+            unsafe_allow_html=True
         )
 
     # -----------------------------------------------------
@@ -797,12 +1037,38 @@ with tab1:
         index=False
     ).encode("utf-8")
 
-    st.download_button(
-        label="⬇️ Download Test Results (CSV)",
-        data=csv_data,
-        file_name="proctor_test_results.csv",
-        mime="text/csv"
+    pdf_buffer = generate_pdf_report(
+        test_method=test_method,
+        density_unit=density_unit,
+        specific_gravity=specific_gravity,
+        water_density=water_density,
+        mould_factor=mould_factor,
+        mould_mass=mould_mass,
+        display_df=display_df,
+        mdd_display=mdd_display,
+        omc=omc,
+        fig=fig
     )
+
+    download_col1, download_col2 = st.columns(2)
+
+    with download_col1:
+        st.download_button(
+            label="⬇️ Download Test Results (CSV)",
+            data=csv_data,
+            file_name="proctor_test_results.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+    with download_col2:
+        st.download_button(
+            label="📄 Download Test Report (PDF)",
+            data=pdf_buffer,
+            file_name="proctor_test_report.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
 
 
 # =========================================================
