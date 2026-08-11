@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+import os
 from io import BytesIO
 from datetime import datetime
 
@@ -19,6 +20,8 @@ from reportlab.platypus import (
     Spacer,
     Image as RLImage
 )
+
+LOGO_PATH = "assets/2.png"
 
 
 # =========================================================
@@ -331,7 +334,34 @@ def generate_pdf_report(
     elements = []
 
     # ---- Header / logo block ----
-    elements.append(Paragraph("🏗️ Automation_hub", title_style))
+    if os.path.isfile(LOGO_PATH):
+
+        try:
+            from PIL import Image as PILImage
+
+            with PILImage.open(LOGO_PATH) as pil_logo:
+                logo_w, logo_h = pil_logo.size
+
+            max_width = 1.8 * inch
+            max_height = 1.1 * inch
+            scale = min(max_width / logo_w, max_height / logo_h)
+
+            logo = RLImage(
+                LOGO_PATH,
+                width=logo_w * scale,
+                height=logo_h * scale
+            )
+            logo.hAlign = "CENTER"
+
+            elements.append(logo)
+            elements.append(Spacer(1, 8))
+
+        except Exception:
+            elements.append(Paragraph("🏗️ Automation_hub", title_style))
+
+    else:
+        elements.append(Paragraph("🏗️ Automation_hub", title_style))
+
     elements.append(
         Paragraph(
             "Proctor Compaction Calculator &mdash; Engineering Test Report",
