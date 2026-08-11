@@ -1,4 +1,6 @@
-streamlit==1.46.0
-numpy
-pandas
-matplotlib
+streamlit>=1.30.0
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+reportlab>=4.0.0
+Pillow>=10.0.0
