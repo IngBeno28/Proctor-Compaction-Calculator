@@ -908,67 +908,145 @@ with tab1:
 
     st.subheader("Mould Information")
 
+    mould_input_mode = st.radio(
+        "Specify mould size by",
+        ["Mould Volume (cm³)", "Mould Factor (m⁻³)"],
+        horizontal=True,
+        help=(
+            "Enter whichever value is on your mould's calibration "
+            "certificate. The other value is calculated automatically "
+            "so you can cross-check it."
+        )
+    )
+
     MOULD_PRESETS = {
         "Standard mould (~944 cm³ / 4 in dia.)": 944.0,
         "Modified/CBR mould (~2124 cm³ / 6 in dia.)": 2124.0,
         "Custom": None
     }
 
-    mould_preset = st.selectbox(
-        "Mould Size",
-        list(MOULD_PRESETS.keys()),
-        help=(
-            "Pick a standard mould size, or choose Custom to enter "
-            "your own measured mould volume."
-        )
-    )
+    if mould_input_mode == "Mould Volume (cm³)":
 
-    mould_col1, mould_col2 = st.columns(2)
-
-    with mould_col1:
-
-        preset_volume = MOULD_PRESETS[mould_preset]
-
-        mould_volume_cm3 = st.number_input(
-            "Mould Volume (cm³)",
-            min_value=1.0,
-            value=preset_volume if preset_volume is not None else 944.0,
-            step=1.0,
-            disabled=(preset_volume is not None),
+        mould_preset = st.selectbox(
+            "Mould Size",
+            list(MOULD_PRESETS.keys()),
             help=(
-                "The internal volume of the compaction mould, in cubic "
-                "centimetres. This is the value printed on the mould's "
-                "calibration certificate."
+                "Pick a standard mould size, or choose Custom to enter "
+                "your own measured mould volume."
             )
         )
 
-    with mould_col2:
+        mould_col1, mould_col2 = st.columns(2)
 
-        mould_mass = st.number_input(
-            "Mould Mass (g)",
-            min_value=0.0,
-            value=700.0,
-            step=0.1,
-            help=(
-                "Mass of the empty mould (and base plate, if it is "
-                "weighed with the specimen). Check this against your "
-                "mould's calibration sheet — a wrong mould mass is a "
-                "common source of density errors."
+        with mould_col1:
+
+            preset_volume = MOULD_PRESETS[mould_preset]
+
+            mould_volume_cm3 = st.number_input(
+                "Mould Volume (cm³)",
+                min_value=1.0,
+                value=preset_volume if preset_volume is not None else 944.0,
+                step=1.0,
+                disabled=(preset_volume is not None),
+                help=(
+                    "The internal volume of the compaction mould, in "
+                    "cubic centimetres. This is the value printed on "
+                    "the mould's calibration certificate."
+                )
             )
+
+        with mould_col2:
+
+            mould_mass = st.number_input(
+                "Mould Mass (g)",
+                min_value=0.0,
+                value=700.0,
+                step=0.1,
+                help=(
+                    "Mass of the empty mould (and base plate, if it is "
+                    "weighed with the specimen). Check this against "
+                    "your mould's calibration sheet — a wrong mould "
+                    "mass is a common source of density errors."
+                )
+            )
+
+        # Mould factor = 1,000,000 / mould volume (cm³), so that
+        # Wet Density (kg/m³) = Wet Soil Mass (kg) × Mould Factor (m⁻³).
+        mould_factor = 1_000_000.0 / mould_volume_cm3
+
+        st.caption(
+            f"Mould Volume = {mould_volume_cm3:,.1f} cm³ → "
+            f"Mould Factor = {mould_factor:,.2f} m⁻³ "
+            "(computed automatically as 1,000,000 ÷ mould volume). "
+            "Wet soil mass is converted from grams to kilograms "
+            "before calculating wet density."
         )
 
-    # Mould factor = 1 / mould volume, derived here so the user never
-    # has to enter a reciprocal value themselves (a common source of
-    # large, uniform unit errors in the calculated densities).
-    mould_factor = 1_000_000.0 / mould_volume_cm3
+    else:
 
-    st.caption(
-        f"Mould Volume = {mould_volume_cm3:,.1f} cm³ → "
-        f"Mould Factor = {mould_factor:,.2f} m⁻³ "
-        "(computed automatically as 1 / mould volume). "
-        "Wet soil mass is converted from grams to kilograms "
-        "before calculating wet density."
-    )
+        mould_col1, mould_col2 = st.columns(2)
+
+        with mould_col1:
+
+            mould_factor = st.number_input(
+                "Mould Factor (m⁻³)",
+                min_value=0.01,
+                value=1059.32,
+                step=0.01,
+                format="%.2f",
+                help=(
+                    "Mould Factor = 1,000,000 ÷ Mould Volume (cm³), "
+                    "such that Wet Density (kg/m³) = Wet Soil Mass "
+                    "(kg) × Mould Factor. For a standard ~944 cm³ "
+                    "mould this is about 1059. If your lab sheet "
+                    "instead gives a small factor (e.g. 0.4–1.1) meant "
+                    "to be applied directly to a mass in grams, "
+                    "multiply it by 1000 before entering it here, or "
+                    "switch to 'Mould Volume' above and enter "
+                    "1000 ÷ that factor in cm³ instead."
+                )
+            )
+
+        with mould_col2:
+
+            mould_mass = st.number_input(
+                "Mould Mass (g)",
+                min_value=0.0,
+                value=700.0,
+                step=0.1,
+                help=(
+                    "Mass of the empty mould (and base plate, if it is "
+                    "weighed with the specimen). Check this against "
+                    "your mould's calibration sheet — a wrong mould "
+                    "mass is a common source of density errors."
+                )
+            )
+
+        # Back out the equivalent volume purely so it can be shown to
+        # the user as a sanity check on the magnitude they entered.
+        mould_volume_cm3 = 1_000_000.0 / mould_factor
+
+        volume_caption = (
+            f"Mould Factor = {mould_factor:,.2f} m⁻³ → equivalent "
+            f"Mould Volume = {mould_volume_cm3:,.1f} cm³. "
+            "Wet soil mass is converted from grams to kilograms "
+            "before calculating wet density."
+        )
+
+        if not (300.0 <= mould_volume_cm3 <= 5000.0):
+
+            st.warning(
+                f"⚠️ A Mould Factor of {mould_factor:,.2f} m⁻³ implies "
+                f"a mould volume of {mould_volume_cm3:,.1f} cm³, which "
+                f"is well outside the range of common compaction "
+                f"moulds (roughly 900–2200 cm³). Double check the "
+                f"value and its units — a factor meant to be applied "
+                f"to grams directly (commonly 0.4–1.1) needs to be "
+                f"multiplied by 1000 before use here."
+            )
+
+        else:
+            st.caption(volume_caption)
 
     st.markdown("---")
 
