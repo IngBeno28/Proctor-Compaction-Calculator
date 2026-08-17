@@ -18,8 +18,11 @@ from reportlab.platypus import (
     TableStyle,
     Paragraph,
     Spacer,
+    PageBreak,
+    HRFlowable,
     Image as RLImage
 )
+from reportlab.pdfgen import canvas as pdfcanvas
 
 LOGO_PATH = "assets/2.png"
 
@@ -111,6 +114,12 @@ st.markdown(
 # =========================================================
 
 st.sidebar.header("Test Information")
+
+project_name = st.sidebar.text_input(
+    "Project Name",
+    value="",
+    placeholder="Unnamed Project"
+)
 
 test_method = st.sidebar.selectbox(
     "Compaction Method",
@@ -238,102 +247,105 @@ def calculate_mdd_omc(moisture, dry_density):
 # PDF REPORT GENERATION
 # =========================================================
 
-def add_watermark_and_footer(canvas, doc):
-    """Draw a diagonal Automation_hub watermark and footer on every page."""
+BRAND_BLUE = colors.HexColor("#2f5fa8")
+TEXT_DARK = colors.HexColor("#1a1a1a")
+TEXT_GREY = colors.HexColor("#555555")
+TEXT_LIGHT_GREY = colors.HexColor("#888888")
+LINE_GREY = colors.HexColor("#dddddd")
 
-    page_width, page_height = letter
-
-    # Diagonal watermark
-    canvas.saveState()
-    canvas.setFont("Helvetica-Bold", 60)
-    canvas.setFillColor(colors.Color(0, 0, 0, alpha=0.06))
-    canvas.translate(page_width / 2, page_height / 2)
-    canvas.rotate(45)
-    canvas.drawCentredString(0, 0, "AUTOMATION_HUB")
-    canvas.restoreState()
-
-    # Footer
-    canvas.saveState()
-    canvas.setFont("Helvetica", 8)
-    canvas.setFillColor(colors.grey)
-    canvas.drawString(
-        0.75 * inch,
-        0.5 * inch,
-        f"Automation_hub Engineering Group | Generated "
-        f"{datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    )
-    canvas.drawRightString(
-        page_width - 0.75 * inch,
-        0.5 * inch,
-        f"Page {doc.page}"
-    )
-    canvas.restoreState()
+FOOTER_COPYRIGHT = (
+    "Automation_hub Engineering Group Limited | "
+    "\u00a9 2026 Proctor Compaction Calculator | "
+    "Built for engineering precision"
+)
+FOOTER_CONTACT = (
+    "Tel: +233501365878/+233256346244 | "
+    "Web: https://automationapps.streamlit.app/"
+)
 
 
-def generate_pdf_report(
-    test_method,
-    density_unit,
-    specific_gravity,
-    water_density,
-    mould_factor,
-    mould_mass,
-    display_df,
-    mdd_display,
-    omc,
-    fig
-):
-    """Build a branded, watermarked PDF report of the Proctor test results."""
+class NumberedCanvas(pdfcanvas.Canvas):
+    """
+    A canvas that defers drawing page footers until the full document
+    has been laid out, so it can display 'Page X/Y' with a correct
+    total page count, and draw the top brand band on the cover page.
+    """
 
-    buffer = BytesIO()
+    def __init__(self, *args, **kwargs):
+        pdfcanvas.Canvas.__init__(self, *args, **kwargs)
+        self._saved_page_states = []
 
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=letter,
-        topMargin=0.9 * inch,
-        bottomMargin=0.9 * inch,
-        leftMargin=0.75 * inch,
-        rightMargin=0.75 * inch
-    )
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
 
-    styles = getSampleStyleSheet()
+    def save(self):
+        total_pages = len(self._saved_page_states)
 
-    title_style = ParagraphStyle(
-        "ReportTitle",
-        parent=styles["Heading1"],
-        alignment=TA_CENTER,
-        fontSize=20,
-        textColor=colors.HexColor("#1a1a1a"),
-        spaceAfter=2
-    )
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self._draw_page_furniture(total_pages)
+            pdfcanvas.Canvas.showPage(self)
 
-    brand_style = ParagraphStyle(
-        "ReportBrand",
-        parent=styles["Normal"],
-        alignment=TA_CENTER,
-        fontSize=11,
-        textColor=colors.HexColor("#888888"),
-        spaceAfter=18
-    )
+        pdfcanvas.Canvas.save(self)
 
-    section_style = ParagraphStyle(
-        "SectionHeader",
-        parent=styles["Heading2"],
-        fontSize=13,
-        spaceBefore=16,
-        spaceAfter=8,
-        textColor=colors.HexColor("#1a1a1a")
-    )
+    def _draw_page_furniture(self, total_pages):
 
-    disclaimer_style = ParagraphStyle(
-        "Disclaimer",
-        parent=styles["Normal"],
-        fontSize=8,
-        textColor=colors.grey
-    )
+        page_width, page_height = letter
 
-    elements = []
+        # Top brand band — cover page only
+        if self._pageNumber == 1:
+            self.saveState()
+            self.setFillColor(BRAND_BLUE)
+            self.rect(
+                0,
+                page_height - 0.16 * inch,
+                page_width,
+                0.16 * inch,
+                stroke=0,
+                fill=1
+            )
+            self.restoreState()
 
-    # ---- Header / logo block ----
+        # Footer — every page
+        self.saveState()
+
+        self.setStrokeColor(LINE_GREY)
+        self.setLineWidth(0.5)
+        self.line(
+            0.75 * inch,
+            0.62 * inch,
+            page_width - 0.75 * inch,
+            0.62 * inch
+        )
+
+        self.setFont("Helvetica", 8)
+        self.setFillColor(TEXT_GREY)
+        self.drawString(
+            0.75 * inch,
+            0.46 * inch,
+            FOOTER_COPYRIGHT
+        )
+        self.drawRightString(
+            page_width - 0.75 * inch,
+            0.46 * inch,
+            f"Page {self._pageNumber}/{total_pages}"
+        )
+
+        self.setFont("Helvetica", 7.5)
+        self.setFillColor(TEXT_LIGHT_GREY)
+        self.drawString(
+            0.75 * inch,
+            0.32 * inch,
+            FOOTER_CONTACT
+        )
+
+        self.restoreState()
+
+
+def _add_logo_or_fallback(elements, title_style):
+    """Add the centered brand logo to the cover page, or a text fallback."""
+
     if os.path.isfile(LOGO_PATH):
 
         try:
@@ -342,8 +354,8 @@ def generate_pdf_report(
             with PILImage.open(LOGO_PATH) as pil_logo:
                 logo_w, logo_h = pil_logo.size
 
-            max_width = 1.8 * inch
-            max_height = 1.1 * inch
+            max_width = 1.6 * inch
+            max_height = 1.6 * inch
             scale = min(max_width / logo_w, max_height / logo_h)
 
             logo = RLImage(
@@ -354,29 +366,193 @@ def generate_pdf_report(
             logo.hAlign = "CENTER"
 
             elements.append(logo)
-            elements.append(Spacer(1, 8))
+            elements.append(Spacer(1, 10))
+            return
 
         except Exception:
-            elements.append(Paragraph("🏗️ Automation_hub", title_style))
+            pass
 
-    else:
-        elements.append(Paragraph("🏗️ Automation_hub", title_style))
+    elements.append(Paragraph("🏗️ Automation_hub", title_style))
+    elements.append(Spacer(1, 10))
+
+
+def generate_pdf_report(
+    project_name,
+    test_method,
+    density_unit,
+    specific_gravity,
+    water_density,
+    mould_factor,
+    mould_mass,
+    display_df,
+    mdd_display,
+    omc,
+    peak_within_range,
+    fig
+):
+    """Build a branded, multi-page PDF report of the Proctor test results."""
+
+    buffer = BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        topMargin=1.1 * inch,
+        bottomMargin=0.9 * inch,
+        leftMargin=0.9 * inch,
+        rightMargin=0.9 * inch
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "ReportTitle",
+        parent=styles["Heading1"],
+        alignment=TA_CENTER,
+        fontSize=22,
+        textColor=BRAND_BLUE,
+        spaceAfter=4
+    )
+
+    subtitle_style = ParagraphStyle(
+        "ReportSubtitle",
+        parent=styles["Normal"],
+        alignment=TA_CENTER,
+        fontSize=11,
+        textColor=TEXT_GREY,
+        spaceAfter=14
+    )
+
+    tagline_style = ParagraphStyle(
+        "ReportTagline",
+        parent=styles["Normal"],
+        alignment=TA_CENTER,
+        fontSize=9,
+        textColor=TEXT_LIGHT_GREY,
+        fontName="Helvetica-Oblique"
+    )
+
+    page_title_style = ParagraphStyle(
+        "PageTitle",
+        parent=styles["Heading1"],
+        alignment=TA_CENTER,
+        fontSize=17,
+        textColor=TEXT_DARK,
+        spaceAfter=16
+    )
+
+    section_style = ParagraphStyle(
+        "SectionHeader",
+        parent=styles["Heading2"],
+        fontSize=13,
+        spaceBefore=16,
+        spaceAfter=8,
+        textColor=TEXT_DARK
+    )
+
+    body_style = ParagraphStyle(
+        "ReportBody",
+        parent=styles["Normal"],
+        fontSize=9.5,
+        leading=14,
+        textColor=TEXT_DARK,
+        spaceAfter=6
+    )
+
+    disclaimer_style = ParagraphStyle(
+        "Disclaimer",
+        parent=styles["Normal"],
+        fontSize=8,
+        textColor=colors.grey
+    )
+
+    generated_at = datetime.now()
+    generated_date_str = generated_at.strftime("%Y-%m-%d")
+    generated_datetime_str = generated_at.strftime("%Y-%m-%d %H:%M")
+
+    elements = []
+
+    # =====================================================
+    # PAGE 1 — COVER PAGE
+    # =====================================================
+
+    elements.append(Spacer(1, 0.6 * inch))
+
+    _add_logo_or_fallback(elements, title_style)
 
     elements.append(
+        Paragraph("Proctor Compaction Test Report", title_style)
+    )
+    elements.append(
         Paragraph(
-            "Proctor Compaction Calculator &mdash; Engineering Test Report",
-            brand_style
+            f"{test_method} Compaction Analysis",
+            subtitle_style
         )
     )
 
-    # ---- Test configuration ----
+    elements.append(
+        HRFlowable(
+            width="35%",
+            thickness=2,
+            color=BRAND_BLUE,
+            spaceAfter=22,
+            hAlign="CENTER"
+        )
+    )
+
+    cover_data = [
+        ["Project", project_name or "Unnamed Project"],
+        ["Prepared By", "Automation_hub Engineering Group Limited"],
+        ["Date Generated", generated_datetime_str],
+        ["Compaction Method", test_method],
+        ["Number of Specimens", str(len(display_df))]
+    ]
+
+    cover_table = Table(cover_data, colWidths=[2.2 * inch, 3.8 * inch])
+    cover_table.setStyle(
+        TableStyle(
+            [
+                ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("TEXTCOLOR", (0, 0), (0, -1), TEXT_DARK),
+                ("TEXTCOLOR", (1, 0), (1, -1), TEXT_GREY),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 9),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("BOX", (0, 0), (-1, -1), 0.5, LINE_GREY),
+                ("INNERGRID", (0, 0), (-1, -1), 0.5, LINE_GREY)
+            ]
+        )
+    )
+    elements.append(cover_table)
+
+    elements.append(Spacer(1, 0.6 * inch))
+    elements.append(
+        Paragraph(
+            "\u00a9 2026 Proctor Compaction Calculator | "
+            "Built for engineering precision",
+            tagline_style
+        )
+    )
+
+    elements.append(PageBreak())
+
+    # =====================================================
+    # PAGE 2 — TEST CONFIGURATION, RESULTS & INTERPRETATION
+    # =====================================================
+
+    elements.append(
+        Paragraph("Test Configuration & Specimen Results", page_title_style)
+    )
+
     elements.append(Paragraph("Test Configuration", section_style))
 
     config_data = [
+        ["Parameter", "Value"],
         ["Compaction Method", test_method],
         ["Specific Gravity (Gs)", f"{specific_gravity:.2f}"],
-        ["Water Density", f"{water_density:.1f} kg/m³"],
-        ["Mould Factor", f"{mould_factor:.2f} m⁻³"],
+        ["Water Density", f"{water_density:.1f} kg/m\u00b3"],
+        ["Mould Factor", f"{mould_factor:.2f} m\u207b\u00b3"],
         ["Mould Mass", f"{mould_mass:.2f} g"],
         ["Density Unit", density_unit]
     ]
@@ -385,18 +561,18 @@ def generate_pdf_report(
     config_table.setStyle(
         TableStyle(
             [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-                ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#555555")),
+                ("TEXTCOLOR", (0, 0), (0, -1), TEXT_GREY),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
                 ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd"))
+                ("GRID", (0, 0), (-1, -1), 0.5, LINE_GREY)
             ]
         )
     )
     elements.append(config_table)
 
-    # ---- Specimen results ----
     elements.append(Paragraph("Calculated Specimen Results", section_style))
 
     table_data = (
@@ -412,7 +588,7 @@ def generate_pdf_report(
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("FONTSIZE", (0, 0), (-1, -1), 8),
                 ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd")),
+                ("GRID", (0, 0), (-1, -1), 0.5, LINE_GREY),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
                 ("TOPPADDING", (0, 0), (-1, -1), 5)
             ]
@@ -420,7 +596,6 @@ def generate_pdf_report(
     )
     elements.append(specimen_table)
 
-    # ---- Key results ----
     elements.append(Paragraph("Proctor Test Results", section_style))
 
     results_data = [
@@ -437,25 +612,59 @@ def generate_pdf_report(
                 ("FONTNAME", (1, 0), (1, -1), "Helvetica-Bold"),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
                 ("TOPPADDING", (0, 0), (-1, -1), 8),
-                ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd"))
+                ("LINEBELOW", (0, 0), (-1, -1), 0.5, LINE_GREY)
             ]
         )
     )
     elements.append(results_table)
 
-    # ---- Compaction curve chart ----
-    elements.append(Paragraph("Moisture–Density Relationship", section_style))
+    elements.append(Paragraph("Engineering Interpretation", section_style))
+
+    if peak_within_range:
+        interpretation_text = (
+            f"The fitted moisture-density curve shows a clear peak within "
+            f"the tested moisture range. Maximum Dry Density (MDD) = "
+            f"{mdd_display:.3f} {density_unit} at an Optimum Moisture "
+            f"Content (OMC) of {omc:.2f}%. The Zero Air Voids curve was "
+            f"calculated using an assumed specific gravity (Gs) of "
+            f"{specific_gravity:.2f} and a water density of "
+            f"{water_density:.1f} kg/m\u00b3."
+        )
+    else:
+        interpretation_text = (
+            f"The fitted curve does not show a clear peak within the "
+            f"tested moisture range, so the reported Maximum Dry Density "
+            f"({mdd_display:.3f} {density_unit}) and Optimum Moisture "
+            f"Content ({omc:.2f}%) correspond to the highest measured "
+            f"data point rather than a true fitted peak. Additional "
+            f"specimens at higher and/or lower moisture contents are "
+            f"recommended to bracket the actual optimum. The Zero Air "
+            f"Voids curve was calculated using an assumed specific "
+            f"gravity (Gs) of {specific_gravity:.2f} and a water density "
+            f"of {water_density:.1f} kg/m\u00b3."
+        )
+
+    elements.append(Paragraph(interpretation_text, body_style))
+
+    elements.append(PageBreak())
+
+    # =====================================================
+    # PAGE 3 — COMPACTION CURVE CHART
+    # =====================================================
+
+    elements.append(
+        Paragraph("Moisture\u2013Density Relationship", page_title_style)
+    )
 
     img_buffer = BytesIO()
     fig.savefig(img_buffer, format="png", dpi=150, bbox_inches="tight")
     img_buffer.seek(0)
 
     elements.append(
-        RLImage(img_buffer, width=6.5 * inch, height=3.9 * inch)
+        RLImage(img_buffer, width=6.3 * inch, height=3.78 * inch)
     )
 
-    # ---- Disclaimer ----
-    elements.append(Spacer(1, 16))
+    elements.append(Spacer(1, 20))
     elements.append(
         Paragraph(
             "Engineering Disclaimer: This report is generated by an "
@@ -467,10 +676,67 @@ def generate_pdf_report(
         )
     )
 
+    elements.append(PageBreak())
+
+    # =====================================================
+    # PAGE 4 — CERTIFICATION
+    # =====================================================
+
+    elements.append(Paragraph("Certification", page_title_style))
+
+    elements.append(
+        Paragraph(
+            "This Proctor compaction test report has been reviewed and "
+            "is certified as suitable for the stated project and "
+            "engineering requirements.",
+            body_style
+        )
+    )
+
+    elements.append(Spacer(1, 26))
+
+    elements.append(
+        Paragraph(
+            "Engineer Name: "
+            "________________________________________",
+            body_style
+        )
+    )
+    elements.append(
+        Paragraph(f"Date: {generated_date_str}", body_style)
+    )
+
+    elements.append(Spacer(1, 14))
+    elements.append(Paragraph("Signature / Stamp", section_style))
+
+    signature_box = Table(
+        [[""]],
+        colWidths=[5.5 * inch],
+        rowHeights=[1.0 * inch]
+    )
+    signature_box.setStyle(
+        TableStyle(
+            [
+                ("BOX", (0, 0), (-1, -1), 0.5, LINE_GREY)
+            ]
+        )
+    )
+    elements.append(signature_box)
+
+    elements.append(Spacer(1, 26))
+    elements.append(
+        Paragraph(
+            "Report prepared using Proctor Compaction Calculator by "
+            "Automation_hub Engineering Group Limited. "
+            "\u00a9 2026 Proctor Compaction Calculator | "
+            "Built for engineering precision",
+            disclaimer_style
+        )
+    )
+
     doc.build(
         elements,
-        onFirstPage=add_watermark_and_footer,
-        onLaterPages=add_watermark_and_footer
+        canvasmaker=NumberedCanvas
     )
 
     buffer.seek(0)
@@ -853,26 +1119,42 @@ with tab1:
 
     st.subheader("Moisture–Density Relationship")
 
+    estimated_omc = None
+
+    if a < 0:
+        estimated_omc = -b / (2 * a)
+
+    peak_within_range = (
+        estimated_omc is not None
+        and moisture.min() <= estimated_omc <= moisture.max()
+    )
+
+    if not peak_within_range:
+
+        st.warning(
+            "The fitted curve does not show a clear peak within "
+            "the tested moisture range, so Maximum Dry Density and "
+            "Optimum Moisture Content are being reported as the "
+            "highest measured data point rather than a true fitted "
+            "peak. Add specimens at higher and/or lower moisture "
+            "contents to bracket the actual optimum."
+        )
+
     x_curve = np.linspace(
         moisture.min(),
         moisture.max(),
         300
     )
 
-    if a < 0:
-
-        y_curve = (
-            a * x_curve**2
-            + b * x_curve
-            + c
-        )
-
-    else:
-
-        y_curve = np.full_like(
-            x_curve,
-            np.max(dry_density)
-        )
+    # Always compute the fitted quadratic trend curve so a line is
+    # shown even when the fit doesn't open downward (a >= 0). This
+    # commonly happens with a small number of real, noisy specimen
+    # points rather than indicating an error.
+    y_curve = (
+        a * x_curve**2
+        + b * x_curve
+        + c
+    )
 
     # ZAV curve
     zav_curve = (
@@ -932,14 +1214,12 @@ with tab1:
         label="Laboratory Data"
     )
 
-    if a < 0:
-
-        ax.plot(
-            x_curve,
-            y_curve_display,
-            linewidth=2,
-            label="Fitted Compaction Curve"
-        )
+    ax.plot(
+        x_curve,
+        y_curve_display,
+        linewidth=2,
+        label="Fitted Compaction Curve"
+    )
 
     ax.plot(
         x_curve,
@@ -1068,6 +1348,7 @@ with tab1:
     ).encode("utf-8")
 
     pdf_buffer = generate_pdf_report(
+        project_name=project_name,
         test_method=test_method,
         density_unit=density_unit,
         specific_gravity=specific_gravity,
@@ -1077,6 +1358,7 @@ with tab1:
         display_df=display_df,
         mdd_display=mdd_display,
         omc=omc,
+        peak_within_range=peak_within_range,
         fig=fig
     )
 
