@@ -257,9 +257,10 @@ def fit_compaction_curve(moisture, dry_density, num_curve_points=400):
 def check_density_plausibility(dry_density_kg_m3):
     """
     Flag dry density values that fall far outside a physically
-    plausible range for a soil (roughly 800-3000 kg/m3). Values well
-    outside this range almost always indicate a units mix-up rather
-    than an unusual soil.
+    plausible range for a soil (roughly 800-3000 kg/m3), and try to
+    identify the specific scale of the error (e.g. ~1000x too small)
+    so the message can point at the actual likely cause rather than
+    a generic list of possibilities.
 
     Returns a warning message string, or None if values look plausible.
     """
@@ -267,23 +268,73 @@ def check_density_plausibility(dry_density_kg_m3):
     min_density = float(np.min(dry_density_kg_m3))
     max_density = float(np.max(dry_density_kg_m3))
 
-    if min_density < 800 or max_density > 3000:
+    if 800 <= min_density and max_density <= 3000:
+        return None
 
-        return (
-            f"Calculated dry densities ({min_density:.1f}\u2013"
-            f"{max_density:.1f} kg/m\u00b3) look outside the "
-            f"physically plausible range for a soil (roughly "
-            f"800\u20133000 kg/m\u00b3). This is almost always caused "
-            f"by a units mismatch rather than the soil itself. Common "
-            f"causes: 'Wet Soil + Mould Mass' entered in kilograms "
-            f"instead of grams, or 'Mould Factor' entered as the "
-            f"mould volume instead of its reciprocal "
-            f"(Mould Factor = 1 / Mould Volume, in m\u207b\u00b3). "
-            f"A standard Proctor mould (~944 cm\u00b3) has a Mould "
-            f"Factor of about 1059."
+    typical_density = 1900.0
+    mid_density = (min_density + max_density) / 2
+
+    if mid_density <= 0:
+        implied_factor = None
+    else:
+        implied_factor = typical_density / mid_density
+
+    # Try to identify a recognisable, specific cause from the size
+    # of the implied error factor.
+    specific_cause = None
+
+    if implied_factor is not None:
+
+        if 500 <= implied_factor <= 2000:
+            specific_cause = (
+                "This looks like a ~1000\u00d7 scale error \u2014 the "
+                "most common cause is 'Wet Soil + Mould Mass' (or "
+                "'Mould Mass') being entered in kilograms instead of "
+                "grams. Both mass fields expect grams (e.g. 1850, "
+                "not 1.85)."
+            )
+
+        elif 0.0005 <= implied_factor <= 0.002:
+            specific_cause = (
+                "This looks like a ~1000\u00d7-too-large scale error "
+                "\u2014 check whether 'Wet Soil + Mould Mass' was "
+                "entered in milligrams instead of grams, or whether "
+                "an extra zero was added."
+            )
+
+        elif 5 <= implied_factor <= 15:
+            specific_cause = (
+                "This looks like a ~10\u00d7 scale error \u2014 double "
+                "check the Mould Volume value against your mould's "
+                "calibration certificate."
+            )
+
+        elif 200000 <= implied_factor <= 3000000:
+            specific_cause = (
+                "This looks like a ~1,000,000\u00d7 scale error \u2014 "
+                "check that Mould Volume was entered in cubic "
+                "centimetres (cm\u00b3), not cubic metres (m\u00b3). A "
+                "standard mould is about 944 cm\u00b3, not 0.000944."
+            )
+
+    message = (
+        f"Calculated dry densities ({min_density:.1f}\u2013"
+        f"{max_density:.1f} kg/m\u00b3) look outside the physically "
+        f"plausible range for a soil (roughly 800\u20133000 kg/m\u00b3). "
+        f"This is almost always caused by a units mismatch rather "
+        f"than the soil itself."
+    )
+
+    if specific_cause:
+        message += " " + specific_cause
+    else:
+        message += (
+            " Double check the Mould Volume, Mould Mass, and "
+            "Wet Soil + Mould Mass values and units against your "
+            "mould's calibration certificate."
         )
 
-    return None
+    return message
 
 
 # =========================================================
@@ -425,6 +476,7 @@ def generate_pdf_report(
     density_unit,
     specific_gravity,
     water_density,
+    mould_volume_cm3,
     mould_factor,
     mould_mass,
     display_df,
@@ -595,6 +647,7 @@ def generate_pdf_report(
         ["Compaction Method", test_method],
         ["Specific Gravity (Gs)", f"{specific_gravity:.2f}"],
         ["Water Density", f"{water_density:.1f} kg/m\u00b3"],
+        ["Mould Volume", f"{mould_volume_cm3:,.1f} cm\u00b3"],
         ["Mould Factor", f"{mould_factor:.2f} m\u207b\u00b3"],
         ["Mould Mass", f"{mould_mass:.2f} g"],
         ["Density Unit", density_unit]
@@ -855,19 +908,37 @@ with tab1:
 
     st.subheader("Mould Information")
 
+    MOULD_PRESETS = {
+        "Standard mould (~944 cm³ / 4 in dia.)": 944.0,
+        "Modified/CBR mould (~2124 cm³ / 6 in dia.)": 2124.0,
+        "Custom": None
+    }
+
+    mould_preset = st.selectbox(
+        "Mould Size",
+        list(MOULD_PRESETS.keys()),
+        help=(
+            "Pick a standard mould size, or choose Custom to enter "
+            "your own measured mould volume."
+        )
+    )
+
     mould_col1, mould_col2 = st.columns(2)
 
     with mould_col1:
 
-        mould_factor = st.number_input(
-            "Mould Factor (m⁻³)",
-            min_value=0.1,
-            value=1059.32,
-            step=0.01,
-            format="%.2f",
+        preset_volume = MOULD_PRESETS[mould_preset]
+
+        mould_volume_cm3 = st.number_input(
+            "Mould Volume (cm³)",
+            min_value=1.0,
+            value=preset_volume if preset_volume is not None else 944.0,
+            step=1.0,
+            disabled=(preset_volume is not None),
             help=(
-                "Mould factor is the inverse of mould volume. "
-                "Enter the mould factor in m⁻³."
+                "The internal volume of the compaction mould, in cubic "
+                "centimetres. This is the value printed on the mould's "
+                "calibration certificate."
             )
         )
 
@@ -877,12 +948,24 @@ with tab1:
             "Mould Mass (g)",
             min_value=0.0,
             value=700.0,
-            step=0.1
+            step=0.1,
+            help=(
+                "Mass of the empty mould (and base plate, if it is "
+                "weighed with the specimen). Check this against your "
+                "mould's calibration sheet — a wrong mould mass is a "
+                "common source of density errors."
+            )
         )
 
+    # Mould factor = 1 / mould volume, derived here so the user never
+    # has to enter a reciprocal value themselves (a common source of
+    # large, uniform unit errors in the calculated densities).
+    mould_factor = 1_000_000.0 / mould_volume_cm3
+
     st.caption(
-        "Mould factor = 1 / mould volume. "
-        "Enter the mould factor in m⁻³. "
+        f"Mould Volume = {mould_volume_cm3:,.1f} cm³ → "
+        f"Mould Factor = {mould_factor:,.2f} m⁻³ "
+        "(computed automatically as 1 / mould volume). "
         "Wet soil mass is converted from grams to kilograms "
         "before calculating wet density."
     )
@@ -1096,7 +1179,7 @@ with tab1:
     plausibility_warning = check_density_plausibility(dry_density)
 
     if plausibility_warning:
-        st.warning(plausibility_warning)
+        st.error("⚠️ " + plausibility_warning)
 
     mdd, omc, x_curve, y_curve, peak_within_range = fit_compaction_curve(
         moisture,
@@ -1373,6 +1456,7 @@ with tab1:
         density_unit=density_unit,
         specific_gravity=specific_gravity,
         water_density=water_density,
+        mould_volume_cm3=mould_volume_cm3,
         mould_factor=mould_factor,
         mould_mass=mould_mass,
         display_df=display_df,
@@ -1556,6 +1640,7 @@ with tab3:
             "Parameter": [
                 "Compaction Method",
                 "Number of Test Points",
+                "Mould Volume",
                 "Mould Factor",
                 "Mould Mass",
                 "Specific Gravity",
@@ -1566,6 +1651,7 @@ with tab3:
             "Value": [
                 test_method,
                 num_points,
+                f"{mould_volume_cm3:,.1f} cm³",
                 f"{mould_factor:.2f} m⁻³",
                 f"{mould_mass:.2f} g",
                 f"{specific_gravity:.2f}",
