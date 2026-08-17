@@ -191,56 +191,99 @@ def selected_density_to_kg_m3(value, unit):
     return value
 
 
-def calculate_mdd_omc(moisture, dry_density):
+def fit_compaction_curve(moisture, dry_density, num_curve_points=400):
     """
-    Determine MDD and OMC using a quadratic fit.
+    Fit a smooth curve through the measured (moisture, dry density)
+    points and determine MDD/OMC from its peak.
+
+    Uses a spline that passes exactly through every measured point
+    (matching the classic smoothed Proctor curve), falling back to a
+    quadratic regression only if there are too few points for a spline.
 
     Returns:
-        mdd_kg_m3
-        omc_percent
-        coefficients
+        mdd, omc, x_curve, y_curve, peak_within_range
     """
 
-    coefficients = np.polyfit(
-        moisture,
-        dry_density,
-        2
+    order = np.argsort(moisture)
+    moisture_sorted = moisture[order]
+    dry_density_sorted = dry_density[order]
+
+    n = len(moisture_sorted)
+
+    # Spline order: cubic for 4+ points, quadratic for exactly 3.
+    k = min(3, n - 1)
+
+    x_curve = np.linspace(
+        moisture_sorted.min(),
+        moisture_sorted.max(),
+        num_curve_points
     )
 
-    a, b, c = coefficients
+    try:
+        from scipy.interpolate import make_interp_spline
 
-    # Measured maximum
-    max_index = np.argmax(dry_density)
-
-    measured_mdd = dry_density[max_index]
-    measured_omc = moisture[max_index]
-
-    mdd = measured_mdd
-    omc = measured_omc
-
-    # A valid compaction curve should open downward.
-    if a < 0:
-
-        estimated_omc = -b / (2 * a)
-
-        estimated_mdd = (
-            a * estimated_omc**2
-            + b * estimated_omc
-            + c
+        spline = make_interp_spline(
+            moisture_sorted,
+            dry_density_sorted,
+            k=k
         )
 
-        # Only accept the fitted vertex if it falls
-        # within the measured moisture range.
-        if (
-            moisture.min()
-            <= estimated_omc
-            <= moisture.max()
-        ):
+        y_curve = spline(x_curve)
 
-            omc = estimated_omc
-            mdd = estimated_mdd
+    except Exception:
 
-    return mdd, omc, coefficients
+        # Fallback: quadratic regression if spline fitting fails.
+        coefficients = np.polyfit(moisture_sorted, dry_density_sorted, 2)
+        a, b, c = coefficients
+        y_curve = a * x_curve**2 + b * x_curve + c
+
+    peak_index = np.argmax(y_curve)
+
+    mdd = y_curve[peak_index]
+    omc = x_curve[peak_index]
+
+    # The peak is considered genuinely "found" only if it sits inside
+    # the tested range rather than right at either endpoint, which
+    # would mean the true optimum wasn't bracketed by the data.
+    edge_margin = max(1, num_curve_points // 100)
+
+    peak_within_range = (
+        edge_margin < peak_index < (num_curve_points - 1 - edge_margin)
+    )
+
+    return mdd, omc, x_curve, y_curve, peak_within_range
+
+
+def check_density_plausibility(dry_density_kg_m3):
+    """
+    Flag dry density values that fall far outside a physically
+    plausible range for a soil (roughly 800-3000 kg/m3). Values well
+    outside this range almost always indicate a units mix-up rather
+    than an unusual soil.
+
+    Returns a warning message string, or None if values look plausible.
+    """
+
+    min_density = float(np.min(dry_density_kg_m3))
+    max_density = float(np.max(dry_density_kg_m3))
+
+    if min_density < 800 or max_density > 3000:
+
+        return (
+            f"Calculated dry densities ({min_density:.1f}\u2013"
+            f"{max_density:.1f} kg/m\u00b3) look outside the "
+            f"physically plausible range for a soil (roughly "
+            f"800\u20133000 kg/m\u00b3). This is almost always caused "
+            f"by a units mismatch rather than the soil itself. Common "
+            f"causes: 'Wet Soil + Mould Mass' entered in kilograms "
+            f"instead of grams, or 'Mould Factor' entered as the "
+            f"mould volume instead of its reciprocal "
+            f"(Mould Factor = 1 / Mould Volume, in m\u207b\u00b3). "
+            f"A standard Proctor mould (~944 cm\u00b3) has a Mould "
+            f"Factor of about 1059."
+        )
+
+    return None
 
 
 # =========================================================
@@ -1050,12 +1093,15 @@ with tab1:
         "Dry Density (kg/m³)"
     ].to_numpy()
 
-    mdd, omc, coefficients = calculate_mdd_omc(
+    plausibility_warning = check_density_plausibility(dry_density)
+
+    if plausibility_warning:
+        st.warning(plausibility_warning)
+
+    mdd, omc, x_curve, y_curve, peak_within_range = fit_compaction_curve(
         moisture,
         dry_density
     )
-
-    a, b, c = coefficients
 
     # -----------------------------------------------------
     # ZAV CURVE
@@ -1119,44 +1165,18 @@ with tab1:
 
     st.subheader("Moisture–Density Relationship")
 
-    estimated_omc = None
-
-    if a < 0:
-        estimated_omc = -b / (2 * a)
-
-    peak_within_range = (
-        estimated_omc is not None
-        and moisture.min() <= estimated_omc <= moisture.max()
-    )
-
     if not peak_within_range:
 
         st.warning(
             "The fitted curve does not show a clear peak within "
             "the tested moisture range, so Maximum Dry Density and "
-            "Optimum Moisture Content are being reported as the "
-            "highest measured data point rather than a true fitted "
-            "peak. Add specimens at higher and/or lower moisture "
-            "contents to bracket the actual optimum."
+            "Optimum Moisture Content are being reported from the "
+            "curve's edge rather than a true interior peak. Add "
+            "specimens at higher and/or lower moisture contents to "
+            "bracket the actual optimum."
         )
 
-    x_curve = np.linspace(
-        moisture.min(),
-        moisture.max(),
-        300
-    )
-
-    # Always compute the fitted quadratic trend curve so a line is
-    # shown even when the fit doesn't open downward (a >= 0). This
-    # commonly happens with a small number of real, noisy specimen
-    # points rather than indicating an error.
-    y_curve = (
-        a * x_curve**2
-        + b * x_curve
-        + c
-    )
-
-    # ZAV curve
+    # ZAV curve, sampled over the same moisture range as the fitted curve
     zav_curve = (
         specific_gravity
         * water_density
